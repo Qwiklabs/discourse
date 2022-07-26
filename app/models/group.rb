@@ -483,12 +483,20 @@ class Group < ActiveRecord::Base
         "SELECT id FROM users WHERE id <= 0 OR trust_level < #{id - 10} OR staged"
       end
 
-    DB.exec <<-SQL
+    removed_user_ids = DB.query_single <<-SQL
       DELETE FROM group_users
             USING (#{remove_subquery}) X
             WHERE group_id = #{group.id}
               AND user_id = X.id
+      RETURNING group_users.user_id
     SQL
+
+    if removed_user_ids.present?
+      Jobs.enqueue(
+        :publish_group_membership_updates,
+        user_ids: removed_user_ids, group_id: group.id, type: :remove
+      )
+    end
 
     # Add people to groups
     insert_subquery =
@@ -505,15 +513,23 @@ class Group < ActiveRecord::Base
         "SELECT id FROM users WHERE id > 0 AND NOT staged"
       end
 
-    DB.exec <<-SQL
+    added_user_ids = DB.query_single <<-SQL
       INSERT INTO group_users (group_id, user_id, created_at, updated_at)
            SELECT #{group.id}, X.id, now(), now()
              FROM group_users
        RIGHT JOIN (#{insert_subquery}) X ON X.id = user_id AND group_id = #{group.id}
             WHERE user_id IS NULL
+       RETURNING group_users.user_id
     SQL
 
     group.save!
+
+    if added_user_ids.present?
+      Jobs.enqueue(
+        :publish_group_membership_updates,
+        user_ids: added_user_ids, group_id: group.id, type: :add
+      )
+    end
 
     # we want to ensure consistency
     Group.reset_counters(group.id, :group_users)
