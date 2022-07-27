@@ -1,0 +1,40 @@
+steps:
+- id: cache-gcloud
+  waitFor:
+  - '-'
+  name: gcr.io/cloud-builders/docker
+  args:
+  - pull
+  - gcr.io/google.com/cloudsdktool/cloud-sdk
+- id: build
+  waitFor:
+  - '-'
+  name: gcr.io/cloud-builders/docker
+  args:
+  - build
+  - -f=Dockerfile.ruby
+  - --tag=us-docker.pkg.dev/${PROJECT_ID}/container-images/ql_discourse:commit-${COMMIT_SHA}
+  - .
+- id: push
+  waitFor:
+  - build
+  name: gcr.io/cloud-builders/docker
+  args:
+  - push
+  - us-docker.pkg.dev/${PROJECT_ID}/container-images/ql_discourse:commit-${COMMIT_SHA}
+- id: deploy
+  waitFor:
+  - push
+  - cache_gcloud
+  name: gcr.io/google.com/cloudsdktool/cloud-sdk
+  entrypoint: gcloud
+  args:
+  - run
+  - deploy
+  - ${_CLOUD_RUN_SERVICE}
+  - --region=${_CLOUD_RUN_LOCATION}
+  - --image=us-docker.pkg.dev/${PROJECT_ID}/container-images/ql_discourse:commit-${COMMIT_SHA}
+  - --no-traffic
+
+images:
+us-docker.pkg.dev/${PROJECT_ID}/container-images/ql_discourse:commit-${COMMIT_SHA}
