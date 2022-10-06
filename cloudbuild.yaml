@@ -1,0 +1,42 @@
+steps:
+- id: cache-gcloud
+  waitFor:
+  - '-'
+  name: gcr.io/cloud-builders/docker
+  args:
+  - pull
+  - gcr.io/google.com/cloudsdktool/cloud-sdk
+- id: build
+  waitFor:
+  - '-'
+  name: gcr.io/cloud-builders/docker
+  timeout: 3600s
+  args:
+  - build
+  - -f=discourse_dev/Dockerfile
+  - --tag=us-docker.pkg.dev/${PROJECT_ID}/container-images/ql_discourse:commit-${COMMIT_SHA}
+  - .
+- id: push
+  waitFor:
+  - build
+  name: gcr.io/cloud-builders/docker
+  args:
+  - push
+  - us-docker.pkg.dev/${PROJECT_ID}/container-images/ql_discourse:commit-${COMMIT_SHA}
+- id: deploy
+  waitFor:
+  - push
+  - cache-gcloud
+  name: gcr.io/google.com/cloudsdktool/cloud-sdk
+  entrypoint: gcloud
+  args:
+  - run
+  - deploy
+  - ${_CLOUD_RUN_SERVICE}
+  - --region=${_CLOUD_RUN_LOCATION}
+  - --image=us-docker.pkg.dev/${PROJECT_ID}/container-images/ql_discourse:commit-${COMMIT_SHA}
+  - --no-traffic
+
+timeout: 3600s
+images:
+- us-docker.pkg.dev/${PROJECT_ID}/container-images/ql_discourse:commit-${COMMIT_SHA}
